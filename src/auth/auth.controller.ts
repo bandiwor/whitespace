@@ -7,7 +7,7 @@ import {
     Post,
     Query,
     Req,
-    Res,
+    Res, UnauthorizedException,
     UsePipes,
     ValidationPipe,
 } from "@nestjs/common";
@@ -15,6 +15,7 @@ import {FastifyReply, FastifyRequest} from "fastify";
 import AuthService from "./auth.service";
 import CreateProfileDto from "./dto/create-profile.dto";
 import LoginDto from "./dto/login.dto";
+import LogoutDto from "./dto/logout.dto";
 import RefreshDto from "./dto/refresh.dto";
 import RegisterDto from "./dto/register.dto";
 
@@ -105,4 +106,20 @@ export class AuthController {
     async refreshPost(@Body() dto: RefreshDto) {
         return this.authService.refresh(dto);
     }
+
+    @HttpCode(HttpStatus.OK)
+    @Get("logout")
+    @UsePipes(new ValidationPipe())
+    async logoutGet(@Query() dto: LogoutDto) {
+        return this.authService.logout(dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Post("logout")
+    @UsePipes(new ValidationPipe())
+    async logoutPost(@Body() dto: LogoutDto) {
+        return this.authService.logout(dto);
+    }
+
+
 }

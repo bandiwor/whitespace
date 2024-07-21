@@ -1,6 +1,6 @@
 import {IsString} from "class-validator";
 
-export default class RefreshDto {
+export default class LogoutDto {
     @IsString()
     refreshJWT: string
 }

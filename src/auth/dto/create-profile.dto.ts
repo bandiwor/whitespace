@@ -1,17 +1,16 @@
+import {$Enums} from "@prisma/client";
 import {IsDateString, IsEnum, IsNumberString, IsOptional, IsString, Length, Matches} from "class-validator";
 import {
     telephoneMustBeNumberStringError,
     userFirstAndLastNameRegexp,
-    userFirstAndLastNamesFormatError,
     userFirstAndLastNamesLength,
-    userFirstAndLastNamesLengthError,
+    userFirstnameFormatError,
+    userFirstnameLengthError, userLastnameFormatError, userLastnameLengthError,
     usernameFormatError,
     usernameLength,
     usernameLengthError,
     usernameRegexp,
 } from "./messages";
-
-import {$Enums} from "@prisma/client"
 
 export default class CreateProfileDto {
     @IsNumberString(null, {
@@ -24,31 +23,31 @@ export default class CreateProfileDto {
 
     @IsString()
     @Length(2, 16, {
-        message: userFirstAndLastNamesLengthError,
+        message: userFirstnameLengthError,
     })
     @Matches(userFirstAndLastNameRegexp, {
-        message: userFirstAndLastNamesFormatError,
+        message: userFirstnameFormatError,
     })
     firstName: string;
 
     @IsString()
     @Length(...userFirstAndLastNamesLength, {
-        message: userFirstAndLastNamesLengthError,
+        message: userLastnameLengthError,
     })
     @Matches(userFirstAndLastNameRegexp, {
-        message: userFirstAndLastNamesFormatError,
+        message: userLastnameFormatError,
     })
     lastName: string;
 
     @IsOptional()
     @IsDateString({
         strict: true,
-        strictSeparator: true
+        strictSeparator: true,
     })
-    date?: string
+    dateOfBirth?: string;
 
     @IsEnum($Enums.Gender)
-    gender: $Enums.Gender
+    gender: $Enums.Gender;
 
     @IsOptional()
     @IsString()

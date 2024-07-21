@@ -4,9 +4,12 @@ import {FastifyRequest} from "fastify";
 import CryptoService from "../crypto/crypto.service";
 import {accessExpiresIn, refreshExpiresIn} from "../crypto/jwt-constants";
 import {PrismaService} from "../prisma/prisma.service";
+import capitalizeFirst from "../utils/capitalizeFirst";
+import cleanPhoneNumber from "../utils/cleanPhoneNumber";
 import isValidDateOfBirth from "../utils/isValidDateOfBirth";
 import CreateProfileDto from "./dto/create-profile.dto";
 import LoginDto from "./dto/login.dto";
+import LogoutDto from "./dto/logout.dto";
 import RefreshDto from "./dto/refresh.dto";
 import RegisterDto from "./dto/register.dto";
 import {UserAgentService} from "./useragent.service";
@@ -24,33 +27,37 @@ export default class AuthService {
     async register({telephone, password}: RegisterDto) {
         const existsUser = await this.prismaService.user.findUnique({
             where: {
-                telephone,
+                telephone: cleanPhoneNumber(telephone),
             },
         });
 
         if (existsUser && (existsUser.telephoneVerified || existsUser.profileCreated)) {
             throw new ConflictException("Такой пользователь уже существует.");
         }
+        // Exists user -> user where <|telephoneVerified == false|> & <|profileCreated == false|>
 
         const passwordHash = await this.cryptoService.hash(password);
-        const code = createId() + "." + createId();
+        const code = createId() + createId();
 
-        await this.prismaService.user.upsert({
-            where: {
-                telephone,
-                profileCreated: false,
-                telephoneVerified: false,
-            },
-            update: {
-                passwordHash,
-                telephoneVerificationCode: code,
-            },
-            create: {
-                telephone,
-                passwordHash,
-                telephoneVerificationCode: code,
-            },
-        });
+        if (!existsUser) {
+            await this.prismaService.user.create({
+                data: {
+                    telephone: cleanPhoneNumber(telephone),
+                    passwordHash,
+                    telephoneVerificationCode: code,
+                },
+            });
+        } else {
+            await this.prismaService.user.update({
+                where: {
+                    id: existsUser.id,
+                },
+                data: {
+                    passwordHash,
+                    telephoneVerificationCode: code,
+                },
+            });
+        }
 
         return {ok: true, code};
     }
@@ -58,7 +65,7 @@ export default class AuthService {
     async createProfile(dto: CreateProfileDto) {
         const existsUser = await this.prismaService.user.findUnique({
             where: {
-                telephone: dto.telephone,
+                telephone: cleanPhoneNumber(dto.telephone),
             },
         });
 
@@ -78,8 +85,11 @@ export default class AuthService {
             throw new BadRequestException("Номер телефона не верифицирован в нашем телеграм-боте, Вы можете пройти регистрацию заново");
         }
 
-        if (dto.date && !isValidDateOfBirth(dto.date)) {
+        if (dto.dateOfBirth && !isValidDateOfBirth(dto.dateOfBirth)) {
             throw new BadRequestException("Дата рождения указана неверно");
+        }
+        if (dto.username && (dto.username.startsWith("_") || dto.username.endsWith("_"))) {
+            throw new BadRequestException("Ссылка-username не может начинаться или оканчиваться на символ нижнего подчеркивания.");
         }
 
         await this.prismaService.user.update({
@@ -90,10 +100,11 @@ export default class AuthService {
                 profileCreated: true,
                 profile: {
                     create: {
-                        firstName: dto.firstName,
-                        lastName: dto.lastName,
-                        dateOfBirth: dto.date,
+                        firstName: capitalizeFirst(dto.firstName),
+                        lastName: capitalizeFirst(dto.lastName),
+                        dateOfBirth: dto.dateOfBirth,
                         gender: dto.gender,
+                        username: dto.username ? dto.username.toLowerCase() : undefined,
                     },
                 },
             },
@@ -107,9 +118,7 @@ export default class AuthService {
     async login(req: FastifyRequest, {telephone, password}: LoginDto) {
         const user = await this.prismaService.user.findUnique({
             where: {
-                telephone,
-                profileCreated: true,
-                telephoneVerified: true,
+                telephone: cleanPhoneNumber(telephone),
             },
             include: {
                 profile: true,
@@ -122,6 +131,17 @@ export default class AuthService {
 
         if (!await this.cryptoService.compareHash(password, user.passwordHash)) {
             throw new BadRequestException("Пользователь не найден, либо пароль не верен");
+        }
+
+        if (!user.profileCreated) {
+            return {
+                ok: true,
+                redirectTo: "CREATE-PROFILE",
+            };
+        }
+
+        if (!user.telephoneVerified) {
+            throw new BadRequestException("Номер телефона не верифицирован в нашем телеграм-боте, Вы можете пройти регистрацию заново");
         }
 
         const uaParsed = this.userAgentService.parse(req);
@@ -175,7 +195,7 @@ export default class AuthService {
         };
     }
 
-    async refresh({oldRefreshJwt}: RefreshDto) {
+    async refresh({refreshJWT: oldRefreshJwt}: RefreshDto) {
         const decodedJwt = await this.cryptoService.decodeRefreshJwt(oldRefreshJwt);
         if (!decodedJwt) {
             throw new BadRequestException("Refresh JWT invalid or expires");
@@ -222,5 +242,29 @@ export default class AuthService {
                 token: accessJwt,
             },
         };
+    }
+
+    async logout({refreshJWT}: LogoutDto) {
+        const decodedJwtRefresh = await this.cryptoService.decodeRefreshJwt(refreshJWT);
+        if (!decodedJwtRefresh) {
+            throw new UnauthorizedException("Invalid refresh jwt");
+        }
+
+        const existsSession = await this.prismaService.session.findUnique({
+            where: {
+                id: decodedJwtRefresh.sessionId,
+            },
+        });
+        if (!existsSession) {
+            throw new UnauthorizedException("Session not found");
+        }
+
+        await this.prismaService.session.delete({
+            where: {
+                id: existsSession.id,
+            },
+        });
+
+        return {ok: true};
     }
 }
